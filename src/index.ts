@@ -1,0 +1,897 @@
+#!/usr/bin/env node
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import * as fs from "fs/promises";
+import * as path from "path";
+import {
+  createNewProject,
+  createMap,
+  updateMapTile,
+  addEvent,
+  updateEvent,
+  addEventCommand,
+  addActor,
+  addClass,
+  addSkill,
+  addItem,
+  updateDatabase
+} from "./game-creation-tools.js";
+
+const RPGMAKER_APP_PATH = "/Users/shunsuke/Applications/RPG Maker MZ.app";
+
+// RPG Maker MZ project structure tools
+const server = new Server(
+  {
+    name: "rpgmaker-mz-mcp",
+    version: "0.1.0",
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
+
+// List available tools
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "list_projects",
+        description: "List all RPG Maker MZ projects in a directory",
+        inputSchema: {
+          type: "object",
+          properties: {
+            directory: {
+              type: "string",
+              description: "Directory path to search for projects (defaults to ~/Documents)",
+            },
+          },
+        },
+      },
+      {
+        name: "read_project_info",
+        description: "Read RPG Maker MZ project information (Game.rpgproject file)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "list_maps",
+        description: "List all maps in an RPG Maker MZ project",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "read_map",
+        description: "Read a specific map file from an RPG Maker MZ project",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            map_id: {
+              type: "string",
+              description: "Map ID (e.g., 'Map001')",
+            },
+          },
+          required: ["project_path", "map_id"],
+        },
+      },
+      {
+        name: "list_plugins",
+        description: "List all plugins in an RPG Maker MZ project",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "generate_project_context",
+        description: "Generate comprehensive context documentation for an RPG Maker MZ project including structure, maps, events, and plugin information",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            include_maps: {
+              type: "boolean",
+              description: "Include detailed map information (default: true)",
+            },
+            include_events: {
+              type: "boolean",
+              description: "Include event data (default: true)",
+            },
+            include_plugins: {
+              type: "boolean",
+              description: "Include plugin information (default: true)",
+            },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "analyze_project_structure",
+        description: "Analyze RPG Maker MZ project structure and provide insights about maps, connections, events, and game flow",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "extract_game_design_patterns",
+        description: "Extract common game design patterns from the project (event patterns, map layouts, etc.)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "create_project",
+        description: "Create a new RPG Maker MZ project from scratch",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path where the project will be created",
+            },
+            game_title: {
+              type: "string",
+              description: "Title of the game",
+            },
+          },
+          required: ["project_path", "game_title"],
+        },
+      },
+      {
+        name: "create_map",
+        description: "Create a new map in the project",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            map_id: {
+              type: "number",
+              description: "Map ID number",
+            },
+            name: {
+              type: "string",
+              description: "Map name",
+            },
+            width: {
+              type: "number",
+              description: "Map width in tiles (default: 17)",
+            },
+            height: {
+              type: "number",
+              description: "Map height in tiles (default: 13)",
+            },
+          },
+          required: ["project_path", "map_id", "name"],
+        },
+      },
+      {
+        name: "update_map_tile",
+        description: "Update a tile on a map",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            map_id: {
+              type: "number",
+              description: "Map ID",
+            },
+            x: {
+              type: "number",
+              description: "X coordinate",
+            },
+            y: {
+              type: "number",
+              description: "Y coordinate",
+            },
+            layer: {
+              type: "number",
+              description: "Layer index (0-5)",
+            },
+            tile_id: {
+              type: "number",
+              description: "Tile ID from tileset",
+            },
+          },
+          required: ["project_path", "map_id", "x", "y", "layer", "tile_id"],
+        },
+      },
+      {
+        name: "add_event",
+        description: "Add a new event to a map",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            map_id: {
+              type: "number",
+              description: "Map ID",
+            },
+            event_id: {
+              type: "number",
+              description: "Event ID",
+            },
+            name: {
+              type: "string",
+              description: "Event name",
+            },
+            x: {
+              type: "number",
+              description: "X coordinate",
+            },
+            y: {
+              type: "number",
+              description: "Y coordinate",
+            },
+          },
+          required: ["project_path", "map_id", "event_id", "name", "x", "y"],
+        },
+      },
+      {
+        name: "add_event_command",
+        description: "Add a command to an event page (e.g., show text, transfer player, etc.)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            map_id: {
+              type: "number",
+              description: "Map ID",
+            },
+            event_id: {
+              type: "number",
+              description: "Event ID",
+            },
+            page_index: {
+              type: "number",
+              description: "Page index (0-based)",
+            },
+            code: {
+              type: "number",
+              description: "Command code (e.g., 101=Show Text, 201=Transfer Player, 122=Control Variables)",
+            },
+            parameters: {
+              type: "array",
+              description: "Command parameters",
+            },
+          },
+          required: ["project_path", "map_id", "event_id", "page_index", "code", "parameters"],
+        },
+      },
+      {
+        name: "add_actor",
+        description: "Add a new actor to the database",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            id: {
+              type: "number",
+              description: "Actor ID",
+            },
+            name: {
+              type: "string",
+              description: "Actor name",
+            },
+          },
+          required: ["project_path", "id", "name"],
+        },
+      },
+      {
+        name: "add_class",
+        description: "Add a new class to the database",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            id: {
+              type: "number",
+              description: "Class ID",
+            },
+            name: {
+              type: "string",
+              description: "Class name",
+            },
+          },
+          required: ["project_path", "id", "name"],
+        },
+      },
+      {
+        name: "add_skill",
+        description: "Add a new skill to the database",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            id: {
+              type: "number",
+              description: "Skill ID",
+            },
+            name: {
+              type: "string",
+              description: "Skill name",
+            },
+          },
+          required: ["project_path", "id", "name"],
+        },
+      },
+      {
+        name: "add_item",
+        description: "Add a new item to the database",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            id: {
+              type: "number",
+              description: "Item ID",
+            },
+            name: {
+              type: "string",
+              description: "Item name",
+            },
+          },
+          required: ["project_path", "id", "name"],
+        },
+      },
+      {
+        name: "update_database",
+        description: "Update an entry in any database (Actors, Classes, Skills, Items, Weapons, Armors, etc.)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            database: {
+              type: "string",
+              description: "Database name (e.g., 'Actors', 'Classes', 'Skills', 'Items')",
+            },
+            id: {
+              type: "number",
+              description: "Entry ID",
+            },
+            updates: {
+              type: "object",
+              description: "Object containing fields to update",
+            },
+          },
+          required: ["project_path", "database", "id", "updates"],
+        },
+      },
+    ],
+  };
+});
+
+// Handle tool calls
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  try {
+    switch (name) {
+      case "list_projects": {
+        const searchDir = args.directory || path.join(process.env.HOME!, "Documents");
+        const entries = await fs.readdir(searchDir, { withFileTypes: true });
+        const projects = [];
+
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const projectFile = path.join(searchDir, entry.name, "Game.rpgproject");
+            try {
+              await fs.access(projectFile);
+              projects.push({
+                name: entry.name,
+                path: path.join(searchDir, entry.name),
+              });
+            } catch {
+              // Not an RPG Maker project
+            }
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(projects, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "read_project_info": {
+        const projectPath = args.project_path as string;
+        const projectFile = path.join(projectPath, "Game.rpgproject");
+        const content = await fs.readFile(projectFile, "utf-8");
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: content,
+            },
+          ],
+        };
+      }
+
+      case "list_maps": {
+        const projectPath = args.project_path as string;
+        const mapsFile = path.join(projectPath, "data", "MapInfos.json");
+        const content = await fs.readFile(mapsFile, "utf-8");
+        const maps = JSON.parse(content);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(maps, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "read_map": {
+        const projectPath = args.project_path as string;
+        const mapId = args.map_id as string;
+        const mapFile = path.join(projectPath, "data", `${mapId}.json`);
+        const content = await fs.readFile(mapFile, "utf-8");
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: content,
+            },
+          ],
+        };
+      }
+
+      case "list_plugins": {
+        const projectPath = args.project_path as string;
+        const pluginsDir = path.join(projectPath, "js", "plugins");
+        const pluginsFile = path.join(pluginsDir, "..", "plugins.js");
+
+        let plugins = [];
+        try {
+          const content = await fs.readFile(pluginsFile, "utf-8");
+          plugins.push({ type: "config", file: "plugins.js", content });
+        } catch {
+          // No plugins.js file
+        }
+
+        const files = await fs.readdir(pluginsDir);
+        const pluginFiles = files.filter((f) => f.endsWith(".js"));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ plugins, pluginFiles }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "generate_project_context": {
+        const projectPath = args.project_path as string;
+        const includeMaps = args.include_maps !== false;
+        const includeEvents = args.include_events !== false;
+        const includePlugins = args.include_plugins !== false;
+
+        let context = "# RPG Maker MZ Project Context\n\n";
+
+        // Project info
+        try {
+          const projectFile = path.join(projectPath, "Game.rpgproject");
+          const projectContent = await fs.readFile(projectFile, "utf-8");
+          context += "## Project Information\n```\n" + projectContent + "\n```\n\n";
+        } catch (e) {
+          context += "## Project Information\nUnavailable\n\n";
+        }
+
+        // System data
+        try {
+          const systemFile = path.join(projectPath, "data", "System.json");
+          const systemContent = await fs.readFile(systemFile, "utf-8");
+          const system = JSON.parse(systemContent);
+          context += "## System Settings\n";
+          context += `- Game Title: ${system.gameTitle}\n`;
+          context += `- Version: ${system.versionId || "N/A"}\n\n`;
+        } catch (e) {
+          // Skip if unavailable
+        }
+
+        // Maps
+        if (includeMaps) {
+          try {
+            const mapsFile = path.join(projectPath, "data", "MapInfos.json");
+            const mapsContent = await fs.readFile(mapsFile, "utf-8");
+            const maps = JSON.parse(mapsContent);
+            context += "## Maps\n";
+            for (const [id, mapInfo] of Object.entries(maps)) {
+              if (mapInfo && typeof mapInfo === "object" && "name" in mapInfo) {
+                context += `- Map ${id}: ${mapInfo.name}\n`;
+
+                if (includeEvents) {
+                  try {
+                    const mapFile = path.join(projectPath, "data", `Map${String(id).padStart(3, "0")}.json`);
+                    const mapContent = await fs.readFile(mapFile, "utf-8");
+                    const mapData = JSON.parse(mapContent);
+                    const eventCount = mapData.events?.filter((e: any) => e !== null).length || 0;
+                    context += `  - Events: ${eventCount}\n`;
+                  } catch {
+                    // Skip if map file unavailable
+                  }
+                }
+              }
+            }
+            context += "\n";
+          } catch (e) {
+            context += "## Maps\nUnavailable\n\n";
+          }
+        }
+
+        // Plugins
+        if (includePlugins) {
+          try {
+            const pluginsDir = path.join(projectPath, "js", "plugins");
+            const files = await fs.readdir(pluginsDir);
+            const pluginFiles = files.filter((f) => f.endsWith(".js"));
+            context += "## Plugins\n";
+            for (const plugin of pluginFiles) {
+              context += `- ${plugin}\n`;
+            }
+            context += "\n";
+          } catch (e) {
+            context += "## Plugins\nUnavailable\n\n";
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: context,
+            },
+          ],
+        };
+      }
+
+      case "analyze_project_structure": {
+        const projectPath = args.project_path as string;
+        let analysis = "# Project Structure Analysis\n\n";
+
+        try {
+          const mapsFile = path.join(projectPath, "data", "MapInfos.json");
+          const mapsContent = await fs.readFile(mapsFile, "utf-8");
+          const maps = JSON.parse(mapsContent);
+
+          const mapCount = Object.values(maps).filter((m) => m !== null).length;
+          analysis += `## Overview\n- Total Maps: ${mapCount}\n\n`;
+
+          analysis += "## Map Hierarchy\n";
+          for (const [id, mapInfo] of Object.entries(maps)) {
+            if (mapInfo && typeof mapInfo === "object" && "name" in mapInfo) {
+              const parentId = "parentId" in mapInfo ? mapInfo.parentId : 0;
+              const indent = parentId === 0 ? "" : "  ";
+              analysis += `${indent}- ${mapInfo.name} (ID: ${id})\n`;
+            }
+          }
+          analysis += "\n";
+
+          // Event analysis
+          let totalEvents = 0;
+          const eventsByMap: Record<string, number> = {};
+
+          for (const [id, mapInfo] of Object.entries(maps)) {
+            if (mapInfo && typeof mapInfo === "object" && "name" in mapInfo) {
+              try {
+                const mapFile = path.join(projectPath, "data", `Map${String(id).padStart(3, "0")}.json`);
+                const mapContent = await fs.readFile(mapFile, "utf-8");
+                const mapData = JSON.parse(mapContent);
+                const eventCount = mapData.events?.filter((e: any) => e !== null).length || 0;
+                totalEvents += eventCount;
+                if (eventCount > 0) {
+                  eventsByMap[mapInfo.name as string] = eventCount;
+                }
+              } catch {
+                // Skip
+              }
+            }
+          }
+
+          analysis += `## Event Statistics\n- Total Events: ${totalEvents}\n\n`;
+          if (Object.keys(eventsByMap).length > 0) {
+            analysis += "### Events by Map\n";
+            for (const [mapName, count] of Object.entries(eventsByMap)) {
+              analysis += `- ${mapName}: ${count} events\n`;
+            }
+          }
+
+        } catch (e) {
+          analysis += "Error analyzing project structure\n";
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: analysis,
+            },
+          ],
+        };
+      }
+
+      case "extract_game_design_patterns": {
+        const projectPath = args.project_path as string;
+        let patterns = "# Game Design Patterns\n\n";
+
+        try {
+          const mapsFile = path.join(projectPath, "data", "MapInfos.json");
+          const mapsContent = await fs.readFile(mapsFile, "utf-8");
+          const maps = JSON.parse(mapsContent);
+
+          const eventPatterns: Record<string, number> = {};
+          const commonEventCommands: Record<string, number> = {};
+
+          for (const [id, mapInfo] of Object.entries(maps)) {
+            if (mapInfo && typeof mapInfo === "object" && "name" in mapInfo) {
+              try {
+                const mapFile = path.join(projectPath, "data", `Map${String(id).padStart(3, "0")}.json`);
+                const mapContent = await fs.readFile(mapFile, "utf-8");
+                const mapData = JSON.parse(mapContent);
+
+                if (mapData.events) {
+                  for (const event of mapData.events) {
+                    if (event && event.pages) {
+                      for (const page of event.pages) {
+                        if (page.list) {
+                          for (const command of page.list) {
+                            const cmdCode = command.code;
+                            commonEventCommands[cmdCode] = (commonEventCommands[cmdCode] || 0) + 1;
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch {
+                // Skip
+              }
+            }
+          }
+
+          patterns += "## Common Event Commands\n";
+          const sortedCommands = Object.entries(commonEventCommands)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 10);
+
+          for (const [code, count] of sortedCommands) {
+            patterns += `- Command ${code}: ${count} occurrences\n`;
+          }
+
+        } catch (e) {
+          patterns += "Error extracting patterns\n";
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: patterns,
+            },
+          ],
+        };
+      }
+
+      case "create_project": {
+        const projectPath = args.project_path as string;
+        const gameTitle = args.game_title as string;
+        const result = await createNewProject(projectPath, gameTitle);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "create_map": {
+        const projectPath = args.project_path as string;
+        const mapId = args.map_id as number;
+        const name = args.name as string;
+        const width = (args.width as number) || 17;
+        const height = (args.height as number) || 13;
+        const result = await createMap(projectPath, mapId, name, width, height);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "update_map_tile": {
+        const projectPath = args.project_path as string;
+        const mapId = args.map_id as number;
+        const x = args.x as number;
+        const y = args.y as number;
+        const layer = args.layer as number;
+        const tileId = args.tile_id as number;
+        const result = await updateMapTile(projectPath, mapId, x, y, layer, tileId);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_event": {
+        const projectPath = args.project_path as string;
+        const mapId = args.map_id as number;
+        const eventId = args.event_id as number;
+        const name = args.name as string;
+        const x = args.x as number;
+        const y = args.y as number;
+        const result = await addEvent(projectPath, mapId, eventId, name, x, y);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_event_command": {
+        const projectPath = args.project_path as string;
+        const mapId = args.map_id as number;
+        const eventId = args.event_id as number;
+        const pageIndex = args.page_index as number;
+        const code = args.code as number;
+        const parameters = args.parameters as any[];
+        const command = { code, indent: 0, parameters };
+        const result = await addEventCommand(projectPath, mapId, eventId, pageIndex, command);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_actor": {
+        const projectPath = args.project_path as string;
+        const id = args.id as number;
+        const name = args.name as string;
+        const result = await addActor(projectPath, id, name);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_class": {
+        const projectPath = args.project_path as string;
+        const id = args.id as number;
+        const name = args.name as string;
+        const result = await addClass(projectPath, id, name);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_skill": {
+        const projectPath = args.project_path as string;
+        const id = args.id as number;
+        const name = args.name as string;
+        const result = await addSkill(projectPath, id, name);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_item": {
+        const projectPath = args.project_path as string;
+        const id = args.id as number;
+        const name = args.name as string;
+        const result = await addItem(projectPath, id, name);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "update_database": {
+        const projectPath = args.project_path as string;
+        const database = args.database as string;
+        const id = args.id as number;
+        const updates = args.updates as any;
+        const result = await updateDatabase(projectPath, database, id, updates);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      default:
+        throw new Error(`Unknown tool: ${name}`);
+    }
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+});
+
+// Start the server
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("RPG Maker MZ MCP Server running on stdio");
+}
+
+main().catch((error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});
