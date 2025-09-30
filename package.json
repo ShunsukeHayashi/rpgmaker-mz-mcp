@@ -15,7 +15,8 @@
     "test:e2e": "node test-e2e.mjs",
     "test:autonomous": "node test-autonomous-e2e.mjs",
     "test:error": "node test-error-handling.mjs",
-    "test:all": "npm run test:e2e && npm run test:autonomous && npm run test:error",
+    "test:resource": "node test-resource-manager.mjs",
+    "test:all": "npm run test:e2e && npm run test:autonomous && npm run test:error && npm run test:resource",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "npm run build"

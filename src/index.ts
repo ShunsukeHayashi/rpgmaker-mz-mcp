@@ -43,6 +43,18 @@ import { initVersionControl, createSnapshot, createBackup } from "./versioning.j
 import { analyzePerformance } from "./profiler.js";
 import { createGameAutonomously, type AutonomousCreationRequest } from "./autonomous-creator.js";
 import { setupGlobalErrorHandlers, Logger } from "./error-handling.js";
+import { analyzeProjectAssets, generateAssetContext, generateAssetMapping, removeUnusedAssets } from "./asset-context.js";
+import { getDatabaseStatistics, searchDatabase, findByName, generateDatabaseContext } from "./database-index.js";
+import {
+  registerResource,
+  registerPromptTemplate,
+  getResource,
+  listResources,
+  listPromptTemplates,
+  executePrompt,
+  generatePromptFromResources,
+  initializeDefaultPrompts
+} from "./resource-manager.js";
 
 const RPGMAKER_APP_PATH = "/Users/shunsuke/Applications/RPG Maker MZ.app";
 
@@ -715,6 +727,96 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["project_path", "concept"],
         },
       },
+      {
+        name: "register_resource",
+        description: "Register a resource (template, asset, data) for reuse across the project",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Project path" },
+            resource_id: { type: "string", description: "Unique resource ID" },
+            resource_type: {
+              type: "string",
+              enum: ["template", "asset", "scenario", "data", "custom"],
+              description: "Resource type"
+            },
+            name: { type: "string", description: "Resource name" },
+            description: { type: "string", description: "Resource description" },
+            content: { type: "object", description: "Resource content (any JSON data)" },
+            tags: { type: "array", items: { type: "string" }, description: "Tags for categorization" },
+          },
+          required: ["project_path", "resource_id", "resource_type", "name", "content"],
+        },
+      },
+      {
+        name: "register_prompt_template",
+        description: "Register a reusable prompt template with variable placeholders and resource references",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Project path" },
+            prompt_id: { type: "string", description: "Unique prompt ID" },
+            name: { type: "string", description: "Prompt name" },
+            description: { type: "string", description: "Prompt description" },
+            template: { type: "string", description: "Prompt template with {{variable}} placeholders" },
+            variables: { type: "array", items: { type: "string" }, description: "List of variable names" },
+            resource_refs: { type: "array", items: { type: "string" }, description: "Referenced resource IDs" },
+          },
+          required: ["project_path", "prompt_id", "name", "template", "variables"],
+        },
+      },
+      {
+        name: "execute_prompt",
+        description: "Execute a prompt template with provided variables and resource references",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Project path" },
+            prompt_id: { type: "string", description: "Prompt template ID" },
+            variables: { type: "object", description: "Variables to fill in the template" },
+          },
+          required: ["project_path", "prompt_id", "variables"],
+        },
+      },
+      {
+        name: "list_resources",
+        description: "List all registered resources with optional filtering",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Project path" },
+            type: { type: "string", description: "Filter by resource type" },
+            tags: { type: "array", items: { type: "string" }, description: "Filter by tags" },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "search_database",
+        description: "Search game database (actors, enemies, skills, items, etc.) with filters",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Project path" },
+            types: { type: "array", items: { type: "string" }, description: "Database types to search" },
+            name_contains: { type: "string", description: "Filter by name containing text" },
+            id_min: { type: "number", description: "Minimum ID" },
+            id_max: { type: "number", description: "Maximum ID" },
+          },
+          required: ["project_path"],
+        },
+      },
+      {
+        name: "analyze_assets",
+        description: "Analyze all project assets, detect usage, find unused assets, and generate optimization recommendations",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Project path" },
+          },
+          required: ["project_path"],
+        },
+      },
     ],
   };
 });
@@ -1289,6 +1391,78 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
+      }
+
+      case "register_resource": {
+        const result = await registerResource(args.project_path as string, {
+          id: args.resource_id as string,
+          type: args.resource_type as any,
+          name: args.name as string,
+          description: args.description as string,
+          content: args.content as any,
+          metadata: {
+            tags: args.tags as string[]
+          }
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "register_prompt_template": {
+        const result = await registerPromptTemplate(args.project_path as string, {
+          id: args.prompt_id as string,
+          name: args.name as string,
+          description: args.description as string,
+          template: args.template as string,
+          variables: args.variables as string[],
+          resourceRefs: args.resource_refs as string[]
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "execute_prompt": {
+        const result = await executePrompt(
+          args.project_path as string,
+          args.prompt_id as string,
+          args.variables as Record<string, any>
+        );
+        return {
+          content: [{ type: "text", text: result.success ? result.prompt! : `Error: ${result.error}` }],
+        };
+      }
+
+      case "list_resources": {
+        const result = await listResources(args.project_path as string, {
+          type: args.type as any,
+          tags: args.tags as string[]
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "search_database": {
+        const result = await searchDatabase(args.project_path as string, {
+          type: args.types as string[],
+          nameContains: args.name_contains as string,
+          idRange: {
+            min: args.id_min as number,
+            max: args.id_max as number
+          }
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "analyze_assets": {
+        const result = await generateAssetContext(args.project_path as string);
+        return {
+          content: [{ type: "text", text: result.success ? result.context! : `Error: ${result.error}` }],
+        };
       }
 
       default:
