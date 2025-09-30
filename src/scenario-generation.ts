@@ -9,6 +9,14 @@ import {
   addSkill,
   addItem
 } from "./game-creation-tools.js";
+import {
+  Validator,
+  APIHelper,
+  Logger,
+  createErrorResponse,
+  validateProjectPath,
+  validateGeminiAPIKey
+} from "./error-handling.js";
 
 export interface ScenarioGenerationRequest {
   projectPath: string;
@@ -58,17 +66,27 @@ export interface GeneratedScenario {
 }
 
 export async function generateScenarioWithGemini(request: ScenarioGenerationRequest): Promise<{ success: boolean; scenario?: GeneratedScenario; error?: string }> {
-  const apiKey = request.apiKey || process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    return { success: false, error: "GEMINI_API_KEY not provided" };
-  }
-
-  const prompt = buildScenarioPrompt(request);
-
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+    // Validate inputs
+    await validateProjectPath(request.projectPath);
+    Validator.requireString(request.theme, "theme");
+    Validator.requireString(request.style, "style");
+    Validator.requireEnum(request.length, "length", ["short", "medium", "long"] as const);
+
+    const apiKey = validateGeminiAPIKey(request.apiKey);
+
+    await Logger.info("Generating scenario with Gemini", {
+      projectPath: request.projectPath,
+      theme: request.theme,
+      style: request.style,
+      length: request.length
+    });
+
+    const prompt = buildScenarioPrompt(request);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
+
+    const response = await APIHelper.fetchWithRetry(
+      url,
       {
         method: "POST",
         headers: {
@@ -88,12 +106,9 @@ export async function generateScenarioWithGemini(request: ScenarioGenerationRequ
             responseMimeType: "application/json"
           }
         })
-      }
+      },
+      3
     );
-
-    if (!response.ok) {
-      return { success: false, error: `API error: ${response.statusText}` };
-    }
 
     const data = await response.json();
     const scenarioText = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -103,12 +118,15 @@ export async function generateScenarioWithGemini(request: ScenarioGenerationRequ
     }
 
     const scenario = JSON.parse(scenarioText) as GeneratedScenario;
+    await Logger.info("Scenario generated successfully", {
+      mapsCount: scenario.maps?.length,
+      charactersCount: scenario.characters?.length,
+      eventsCount: scenario.events?.length
+    });
     return { success: true, scenario };
   } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    };
+    await Logger.error("Failed to generate scenario", { request, error });
+    return createErrorResponse(error);
   }
 }
 

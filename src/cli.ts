@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { createNewProject } from './game-creation-tools.js';
 import { generateAndImplementScenario } from './scenario-generation.js';
 import { generateAndImplementBattleSystem } from './battle-system.js';
+import { createGameAutonomously } from './autonomous-creator.js';
 
 const program = new Command();
 
@@ -62,6 +63,47 @@ program
       console.log('✅ Battle system generated!');
     } else {
       console.error('❌ Failed:', result.error);
+    }
+  });
+
+program
+  .command('auto-create <path> <concept>')
+  .description('Autonomously create a complete RPG game from a concept')
+  .option('-t, --title <title>', 'Game title (auto-generated if not provided)')
+  .option('-l, --length <length>', 'Game length (short/medium/long)', 'medium')
+  .option('-d, --difficulty <difficulty>', 'Difficulty (easy/normal/hard)', 'normal')
+  .option('--no-assets', 'Skip asset generation')
+  .option('--no-optimize', 'Skip optimization')
+  .option('--characters <count>', 'Number of character assets to generate', '3')
+  .option('--enemies <count>', 'Number of enemy assets to generate', '5')
+  .option('--tilesets <count>', 'Number of tileset assets to generate', '1')
+  .action(async (path: string, concept: string, options: any) => {
+    console.log(`\n🎮 ========================================`);
+    console.log(`🤖 AUTONOMOUS RPG CREATION`);
+    console.log(`🎮 ========================================\n`);
+    console.log(`📝 Concept: ${concept}`);
+    console.log(`📁 Path: ${path}`);
+    console.log(`⏱️ Length: ${options.length}`);
+    console.log(`💪 Difficulty: ${options.difficulty}\n`);
+
+    const result = await createGameAutonomously({
+      projectPath: path,
+      concept: concept,
+      gameTitle: options.title,
+      length: options.length,
+      difficulty: options.difficulty,
+      generateAssets: options.assets,
+      assetCount: {
+        characters: parseInt(options.characters),
+        enemies: parseInt(options.enemies),
+        tilesets: parseInt(options.tilesets)
+      },
+      optimize: options.optimize
+    });
+
+    if (!result.success) {
+      console.error('\n❌ Autonomous creation failed:', result.error);
+      process.exit(1);
     }
   });
 

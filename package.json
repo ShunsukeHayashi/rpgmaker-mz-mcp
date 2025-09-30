@@ -13,6 +13,9 @@
     "start": "node dist/index.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:e2e": "node test-e2e.mjs",
+    "test:autonomous": "node test-autonomous-e2e.mjs",
+    "test:error": "node test-error-handling.mjs",
+    "test:all": "npm run test:e2e && npm run test:autonomous && npm run test:error",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "npm run build"

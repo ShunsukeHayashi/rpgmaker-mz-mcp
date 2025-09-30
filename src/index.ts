@@ -41,8 +41,13 @@ import { autoBalanceStats } from "./stat-balancer.js";
 import { translateProject } from "./localization.js";
 import { initVersionControl, createSnapshot, createBackup } from "./versioning.js";
 import { analyzePerformance } from "./profiler.js";
+import { createGameAutonomously, type AutonomousCreationRequest } from "./autonomous-creator.js";
+import { setupGlobalErrorHandlers, Logger } from "./error-handling.js";
 
 const RPGMAKER_APP_PATH = "/Users/shunsuke/Applications/RPG Maker MZ.app";
+
+// Setup global error handlers
+setupGlobalErrorHandlers();
 
 // RPG Maker MZ project structure tools
 const server = new Server(
@@ -648,6 +653,68 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["project_path", "theme", "style", "length", "count"],
         },
       },
+      {
+        name: "autonomous_create_game",
+        description: "Autonomously create a complete RPG game from a concept. This tool orchestrates all game creation steps: project setup, scenario generation, battle system, quests, assets, balancing, and optimization. Perfect for rapid game prototyping with minimal input.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path where the game project will be created",
+            },
+            concept: {
+              type: "string",
+              description: "Game concept/theme (e.g., 'fantasy adventure with dragons', 'cyberpunk detective story', 'space opera epic')",
+            },
+            game_title: {
+              type: "string",
+              description: "Game title (auto-generated from concept if not provided)",
+            },
+            length: {
+              type: "string",
+              enum: ["short", "medium", "long"],
+              description: "Game length - short: 1-2hrs, medium: 3-5hrs, long: 8-12hrs",
+            },
+            difficulty: {
+              type: "string",
+              enum: ["easy", "normal", "hard"],
+              description: "Game difficulty level",
+            },
+            generate_assets: {
+              type: "boolean",
+              description: "Whether to generate game assets using AI (default: true)",
+            },
+            asset_count: {
+              type: "object",
+              properties: {
+                characters: {
+                  type: "number",
+                  description: "Number of character sprites to generate",
+                },
+                enemies: {
+                  type: "number",
+                  description: "Number of enemy sprites to generate",
+                },
+                tilesets: {
+                  type: "number",
+                  description: "Number of tilesets to generate",
+                },
+              },
+              description: "Asset generation counts",
+            },
+            optimize: {
+              type: "boolean",
+              description: "Whether to optimize the project after creation (default: true)",
+            },
+            api_key: {
+              type: "string",
+              description: "Gemini API key (optional, uses GEMINI_API_KEY env var if not provided)",
+            },
+          },
+          required: ["project_path", "concept"],
+        },
+      },
     ],
   };
 });
@@ -1170,6 +1237,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case "autonomous_create_game": {
+        const request: AutonomousCreationRequest = {
+          projectPath: args.project_path as string,
+          concept: args.concept as string,
+          gameTitle: args.game_title as string | undefined,
+          length: (args.length as "short" | "medium" | "long") || "medium",
+          difficulty: (args.difficulty as "easy" | "normal" | "hard") || "normal",
+          generateAssets: args.generate_assets !== false,
+          assetCount: args.asset_count as any,
+          optimize: args.optimize !== false,
+        };
+
+        const result = await createGameAutonomously(request);
+
+        if (result.success) {
+          let report = `🎉 Game creation completed successfully!\n\n`;
+          report += `📁 Project: ${result.projectPath}\n\n`;
+
+          if (result.summary) {
+            report += `📊 Summary:\n`;
+            report += `   🗺️  Maps: ${result.summary.totalMaps}\n`;
+            report += `   👤 Actors: ${result.summary.totalActors}\n`;
+            report += `   👹 Enemies: ${result.summary.totalEnemies}\n`;
+            report += `   📍 Events: ${result.summary.totalEvents}\n`;
+            report += `   🎯 Quests: ${result.summary.totalQuests}\n`;
+            report += `   🎨 Assets: ${result.summary.assetsGenerated}\n`;
+            report += `   💾 Size: ${result.summary.projectSize}\n`;
+            report += `   ⏳ Playtime: ${result.summary.estimatedPlaytime}\n\n`;
+          }
+
+          if (result.steps) {
+            report += `\n📋 Creation Steps:\n`;
+            for (const step of result.steps) {
+              const icon = step.status === "success" ? "✅" : step.status === "failed" ? "❌" : "⏭️";
+              report += `${icon} ${step.step}\n`;
+              if (step.error) {
+                report += `   Error: ${step.error}\n`;
+              }
+            }
+          }
+
+          report += `\n✨ Open with RPG Maker MZ: ${path.join(result.projectPath!, "Game.rpgproject")}`;
+
+          return {
+            content: [{ type: "text", text: report }],
+          };
+        } else {
+          return {
+            content: [{ type: "text", text: `❌ Game creation failed: ${result.error}` }],
+            isError: true,
+          };
+        }
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -1188,12 +1309,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Start the server
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("RPG Maker MZ MCP Server running on stdio");
+  try {
+    await Logger.info("Starting RPG Maker MZ MCP Server");
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("RPG Maker MZ MCP Server running on stdio");
+    await Logger.info("Server started successfully");
+  } catch (error) {
+    await Logger.error("Failed to start server", { error });
+    throw error;
+  }
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error("Server error:", error);
+  await Logger.error("Server crashed", {
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined
+  });
   process.exit(1);
 });

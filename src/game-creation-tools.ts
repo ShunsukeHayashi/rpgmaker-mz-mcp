@@ -11,10 +11,35 @@ import {
   getDefaultItem,
   getDefaultProjectStructure
 } from "./templates.js";
+import {
+  Validator,
+  FileHelper,
+  Logger,
+  createErrorResponse,
+  safeExecute,
+  validateProjectPath
+} from "./error-handling.js";
 
 export async function createNewProject(projectPath: string, gameTitle: string) {
-  // Create directory structure
-  const dirs = [
+  try {
+    // Validate inputs
+    Validator.requireString(projectPath, "project_path");
+    Validator.requireString(gameTitle, "game_title");
+
+    await Logger.info("Creating new project", { projectPath, gameTitle });
+
+    // Check if project already exists
+    try {
+      await fs.access(projectPath);
+      throw new Error(`Project path already exists: ${projectPath}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    // Create directory structure
+    const dirs = [
     "audio/bgm",
     "audio/bgs",
     "audio/me",
@@ -84,29 +109,44 @@ export async function createNewProject(projectPath: string, gameTitle: string) {
   await fs.writeFile(path.join(projectPath, "data", "Tilesets.json"), JSON.stringify([null], null, 0), "utf-8");
   await fs.writeFile(path.join(projectPath, "data", "CommonEvents.json"), JSON.stringify([null], null, 0), "utf-8");
 
-  return { success: true, message: `Project created at ${projectPath}` };
+    await Logger.info("Project created successfully", { projectPath });
+    return { success: true, message: `Project created at ${projectPath}` };
+  } catch (error) {
+    await Logger.error("Failed to create project", { projectPath, gameTitle, error });
+    return createErrorResponse(error);
+  }
 }
 
 export async function createMap(projectPath: string, mapId: number, name: string, width = 17, height = 13) {
-  // Read MapInfos
-  const mapInfosPath = path.join(projectPath, "data", "MapInfos.json");
-  const mapInfosContent = await fs.readFile(mapInfosPath, "utf-8");
-  const mapInfos = JSON.parse(mapInfosContent);
+  try {
+    // Validate inputs
+    await validateProjectPath(projectPath);
+    Validator.requirePositiveNumber(mapId, "map_id");
+    Validator.requireString(name, "name");
+    Validator.requirePositiveNumber(width, "width");
+    Validator.requirePositiveNumber(height, "height");
 
-  // Add new map info
-  mapInfos[mapId] = getDefaultMapInfo(mapId, name);
-  await fs.writeFile(mapInfosPath, JSON.stringify(mapInfos, null, 0), "utf-8");
+    await Logger.info("Creating map", { projectPath, mapId, name, width, height });
 
-  // Create map file
-  const map = getDefaultMap(mapId, name, width, height);
-  const mapFilename = `Map${String(mapId).padStart(3, "0")}.json`;
-  await fs.writeFile(
-    path.join(projectPath, "data", mapFilename),
-    JSON.stringify(map, null, 0),
-    "utf-8"
-  );
+    // Read MapInfos
+    const mapInfosPath = path.join(projectPath, "data", "MapInfos.json");
+    const mapInfos = await FileHelper.readJSON(mapInfosPath);
 
-  return { success: true, mapId, name };
+    // Add new map info
+    mapInfos[mapId] = getDefaultMapInfo(mapId, name);
+    await FileHelper.writeJSON(mapInfosPath, mapInfos);
+
+    // Create map file
+    const map = getDefaultMap(mapId, name, width, height);
+    const mapFilename = `Map${String(mapId).padStart(3, "0")}.json`;
+    await FileHelper.writeJSON(path.join(projectPath, "data", mapFilename), map);
+
+    await Logger.info("Map created successfully", { mapId, name });
+    return { success: true, mapId, name };
+  } catch (error) {
+    await Logger.error("Failed to create map", { projectPath, mapId, name, error });
+    return createErrorResponse(error);
+  }
 }
 
 export async function updateMapTile(

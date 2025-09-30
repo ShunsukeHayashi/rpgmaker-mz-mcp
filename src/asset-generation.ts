@@ -1,5 +1,13 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import {
+  Validator,
+  APIHelper,
+  Logger,
+  createErrorResponse,
+  validateProjectPath,
+  validateGeminiAPIKey
+} from "./error-handling.js";
 
 // Gemini 2.5 Flash (nanobanana) integration for asset generation
 export interface AssetGenerationRequest {
@@ -31,18 +39,30 @@ const ASSET_SPECS: AssetSpecs = {
 };
 
 export async function generateAssetWithGemini(request: AssetGenerationRequest): Promise<{ success: boolean; path?: string; error?: string }> {
-  const apiKey = request.apiKey || process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    return { success: false, error: "GEMINI_API_KEY not provided" };
-  }
-
-  const specs = ASSET_SPECS[request.assetType];
-  const enhancedPrompt = buildPrompt(request.assetType, request.prompt, specs);
-
   try {
+    // Validate inputs
+    await validateProjectPath(request.projectPath);
+    Validator.requireEnum(
+      request.assetType,
+      "assetType",
+      ["character", "face", "tileset", "battleback", "enemy", "sv_actor", "picture"] as const
+    );
+    Validator.requireString(request.prompt, "prompt");
+    Validator.requireString(request.filename, "filename");
+
+    const apiKey = validateGeminiAPIKey(request.apiKey);
+
+    await Logger.info("Generating asset with Gemini", {
+      projectPath: request.projectPath,
+      assetType: request.assetType,
+      filename: request.filename
+    });
+
+    const specs = ASSET_SPECS[request.assetType];
+    const enhancedPrompt = buildPrompt(request.assetType, request.prompt, specs);
+
     // Call Gemini 2.5 Flash API with image generation
-    const response = await fetch(
+    const response = await APIHelper.fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
       {
         method: "POST",
