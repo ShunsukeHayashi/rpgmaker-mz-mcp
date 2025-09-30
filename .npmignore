@@ -1,0 +1,13 @@
+src/
+tests/
+.github/
+*.test.mjs
+*.test.ts
+test-e2e.mjs
+tsconfig.json
+jest.config.js
+.eslintrc.json
+.prettierrc
+.editorconfig
+.gitignore
+DEVELOPMENT.md

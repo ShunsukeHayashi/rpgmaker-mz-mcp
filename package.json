@@ -17,9 +17,27 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "npm run build"
   },
-  "keywords": ["mcp", "rpgmaker", "rpg-maker-mz"],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "rpgmaker",
+    "rpg-maker-mz",
+    "game-development",
+    "ai",
+    "gemini",
+    "rpg",
+    "game-maker",
+    "scenario-generation"
+  ],
+  "author": "ShunsukeHayashi",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ShunsukeHayashi/rpgmaker-mz-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ShunsukeHayashi/rpgmaker-mz-mcp/issues"
+  },
+  "homepage": "https://github.com/ShunsukeHayashi/rpgmaker-mz-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",
     "commander": "^11.0.0"
