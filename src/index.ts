@@ -20,6 +20,19 @@ import {
   addItem,
   updateDatabase
 } from "./game-creation-tools.js";
+import {
+  generateAssetWithGemini,
+  generateAssetBatch,
+  describeAsset,
+  type AssetGenerationRequest
+} from "./asset-generation.js";
+import {
+  generateScenarioWithGemini,
+  implementScenario,
+  generateAndImplementScenario,
+  generateScenarioVariations,
+  type ScenarioGenerationRequest
+} from "./scenario-generation.js";
 
 const RPGMAKER_APP_PATH = "/Users/shunsuke/Applications/RPG Maker MZ.app";
 
@@ -429,6 +442,202 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ["project_path", "database", "id", "updates"],
+        },
+      },
+      {
+        name: "generate_asset",
+        description: "Generate RPG Maker MZ asset using Gemini 2.5 Flash (characters, faces, tilesets, etc.)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            asset_type: {
+              type: "string",
+              enum: ["character", "face", "tileset", "battleback", "enemy", "sv_actor", "picture"],
+              description: "Type of asset to generate",
+            },
+            prompt: {
+              type: "string",
+              description: "Description of the asset to generate",
+            },
+            filename: {
+              type: "string",
+              description: "Filename for the generated asset (with extension)",
+            },
+            api_key: {
+              type: "string",
+              description: "Gemini API key (optional, uses GEMINI_API_KEY env var if not provided)",
+            },
+          },
+          required: ["project_path", "asset_type", "prompt", "filename"],
+        },
+      },
+      {
+        name: "generate_asset_batch",
+        description: "Generate multiple RPG Maker MZ assets in batch",
+        inputSchema: {
+          type: "object",
+          properties: {
+            requests: {
+              type: "array",
+              description: "Array of asset generation requests",
+              items: {
+                type: "object",
+                properties: {
+                  project_path: { type: "string" },
+                  asset_type: { type: "string" },
+                  prompt: { type: "string" },
+                  filename: { type: "string" },
+                  api_key: { type: "string" },
+                },
+              },
+            },
+          },
+          required: ["requests"],
+        },
+      },
+      {
+        name: "describe_asset",
+        description: "Analyze and describe an existing RPG Maker MZ asset using Gemini 2.5 Flash",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            asset_type: {
+              type: "string",
+              description: "Type of asset",
+            },
+            filename: {
+              type: "string",
+              description: "Filename of the asset to analyze",
+            },
+            api_key: {
+              type: "string",
+              description: "Gemini API key (optional)",
+            },
+          },
+          required: ["project_path", "asset_type", "filename"],
+        },
+      },
+      {
+        name: "generate_scenario",
+        description: "Generate a complete RPG game scenario using Gemini AI (story, maps, characters, events, items)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            theme: {
+              type: "string",
+              description: "Theme or genre of the game (e.g., 'fantasy adventure', 'sci-fi', 'horror')",
+            },
+            style: {
+              type: "string",
+              description: "Style or tone (e.g., 'lighthearted', 'dark', 'comedic', 'epic')",
+            },
+            length: {
+              type: "string",
+              enum: ["short", "medium", "long"],
+              description: "Length of the game scenario",
+            },
+            api_key: {
+              type: "string",
+              description: "Gemini API key (optional)",
+            },
+          },
+          required: ["project_path", "theme", "style", "length"],
+        },
+      },
+      {
+        name: "implement_scenario",
+        description: "Implement a generated scenario into the RPG Maker MZ project",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            scenario: {
+              type: "object",
+              description: "Generated scenario object",
+            },
+          },
+          required: ["project_path", "scenario"],
+        },
+      },
+      {
+        name: "generate_and_implement_scenario",
+        description: "Generate and immediately implement a complete RPG scenario (all-in-one)",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            theme: {
+              type: "string",
+              description: "Theme or genre of the game",
+            },
+            style: {
+              type: "string",
+              description: "Style or tone",
+            },
+            length: {
+              type: "string",
+              enum: ["short", "medium", "long"],
+              description: "Length of the game scenario",
+            },
+            api_key: {
+              type: "string",
+              description: "Gemini API key (optional)",
+            },
+          },
+          required: ["project_path", "theme", "style", "length"],
+        },
+      },
+      {
+        name: "generate_scenario_variations",
+        description: "Generate multiple variations of a scenario for comparison",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: {
+              type: "string",
+              description: "Path to the RPG Maker MZ project directory",
+            },
+            theme: {
+              type: "string",
+              description: "Theme or genre",
+            },
+            style: {
+              type: "string",
+              description: "Style or tone",
+            },
+            length: {
+              type: "string",
+              enum: ["short", "medium", "long"],
+              description: "Length of scenarios",
+            },
+            count: {
+              type: "number",
+              description: "Number of variations to generate",
+            },
+            api_key: {
+              type: "string",
+              description: "Gemini API key (optional)",
+            },
+          },
+          required: ["project_path", "theme", "style", "length", "count"],
         },
       },
     ],
@@ -865,6 +1074,91 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const result = await updateDatabase(projectPath, database, id, updates);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "generate_asset": {
+        const request: AssetGenerationRequest = {
+          projectPath: args.project_path as string,
+          assetType: args.asset_type as any,
+          prompt: args.prompt as string,
+          filename: args.filename as string,
+          apiKey: args.api_key as string | undefined,
+        };
+        const result = await generateAssetWithGemini(request);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "generate_asset_batch": {
+        const requests = args.requests as AssetGenerationRequest[];
+        const results = await generateAssetBatch(requests);
+        return {
+          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        };
+      }
+
+      case "describe_asset": {
+        const projectPath = args.project_path as string;
+        const assetType = args.asset_type as string;
+        const filename = args.filename as string;
+        const apiKey = args.api_key as string | undefined;
+        const result = await describeAsset(projectPath, assetType, filename, apiKey);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "generate_scenario": {
+        const request: ScenarioGenerationRequest = {
+          projectPath: args.project_path as string,
+          theme: args.theme as string,
+          style: args.style as string,
+          length: args.length as "short" | "medium" | "long",
+          apiKey: args.api_key as string | undefined,
+        };
+        const result = await generateScenarioWithGemini(request);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "implement_scenario": {
+        const projectPath = args.project_path as string;
+        const scenario = args.scenario as any;
+        const result = await implementScenario(projectPath, scenario);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "generate_and_implement_scenario": {
+        const request: ScenarioGenerationRequest = {
+          projectPath: args.project_path as string,
+          theme: args.theme as string,
+          style: args.style as string,
+          length: args.length as "short" | "medium" | "long",
+          apiKey: args.api_key as string | undefined,
+        };
+        const result = await generateAndImplementScenario(request);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "generate_scenario_variations": {
+        const request: ScenarioGenerationRequest = {
+          projectPath: args.project_path as string,
+          theme: args.theme as string,
+          style: args.style as string,
+          length: args.length as "short" | "medium" | "long",
+          apiKey: args.api_key as string | undefined,
+        };
+        const count = args.count as number;
+        const results = await generateScenarioVariations(request, count);
+        return {
+          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
         };
       }
 
