@@ -651,7 +651,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "list_projects": {
-        const searchDir = args.directory || path.join(process.env.HOME!, "Documents");
+        const searchDir = (args?.directory as string) || path.join(process.env.HOME!, "Documents");
         const entries = await fs.readdir(searchDir, { withFileTypes: true });
         const projects = [];
 
