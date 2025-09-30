@@ -33,6 +33,14 @@ import {
   generateScenarioVariations,
   type ScenarioGenerationRequest
 } from "./scenario-generation.js";
+import { installPlugin, listInstalledPlugins, uninstallPlugin, enablePlugin } from "./plugin-manager.js";
+import { optimizeAssets, getProjectSize } from "./asset-optimizer.js";
+import { generateQuestSystem } from "./quest-system.js";
+import { generateDialogueTree } from "./dialogue-tree.js";
+import { autoBalanceStats } from "./stat-balancer.js";
+import { translateProject } from "./localization.js";
+import { initVersionControl, createSnapshot, createBackup } from "./versioning.js";
+import { analyzePerformance } from "./profiler.js";
 
 const RPGMAKER_APP_PATH = "/Users/shunsuke/Applications/RPG Maker MZ.app";
 
